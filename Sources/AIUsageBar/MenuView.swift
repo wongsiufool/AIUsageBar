@@ -1,7 +1,9 @@
 import SwiftUI
+import ServiceManagement
 
 struct MenuView: View {
     @ObservedObject var store: UsageStore
+    @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -17,11 +19,26 @@ struct MenuView: View {
 
     private var footer: some View {
         HStack {
+            Toggle("开机自启动", isOn: $launchAtLogin)
+                .toggleStyle(.checkbox)
+                .font(.caption)
+                .onChange(of: launchAtLogin) { _, enable in
+                    do {
+                        if enable {
+                            try SMAppService.mainApp.register()
+                        } else {
+                            try SMAppService.mainApp.unregister()
+                        }
+                    } catch {
+                        // 注册失败（如从 DMG 直接运行）时回读系统实际状态
+                        launchAtLogin = SMAppService.mainApp.status == .enabled
+                    }
+                }
+            Spacer()
             if let t = store.lastRefresh {
                 Text("更新于 \(t.formatted(date: .omitted, time: .shortened))")
                     .font(.caption2).foregroundStyle(.secondary)
             }
-            Spacer()
             Button {
                 Task { await store.refresh() }
             } label: {

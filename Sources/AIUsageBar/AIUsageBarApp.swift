@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import ServiceManagement
 
 // MenuBarExtra 会将 label 强制按模板（单色）渲染，彩色进度条会被抹掉，
 // 因此改用 NSStatusItem + NSPopover。
@@ -21,6 +22,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var appearanceObservation: NSKeyValueObservation?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // 命令行开关：注册/注销开机自启后退出（便于脚本化，不进入常驻模式）
+        if CommandLine.arguments.contains("--register-login") {
+            do { try SMAppService.mainApp.register(); print("login item: registered") }
+            catch { print("login item register failed: \(error)") }
+            exit(0)
+        }
+        if CommandLine.arguments.contains("--unregister-login") {
+            do { try SMAppService.mainApp.unregister(); print("login item: unregistered") }
+            catch { print("login item unregister failed: \(error)") }
+            exit(0)
+        }
+
         NSApp.setActivationPolicy(.accessory)
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
