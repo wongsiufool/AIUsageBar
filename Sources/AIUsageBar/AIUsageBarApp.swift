@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let popover = NSPopover()
     private var cancellable: AnyCancellable?
     private var appearanceObservation: NSKeyValueObservation?
+    private var lastRendered: (top: Double?, bottom: Double?, isDark: Bool)?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // 命令行开关：注册/注销开机自启后退出（便于脚本化，不进入常驻模式）
@@ -63,11 +64,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let button = statusItem.button else { return }
         let isDark = button.effectiveAppearance
             .bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        button.image = StatusIcon.image(
-            top: store.claudeSessionPercent,
-            bottom: store.codexSessionPercent,
-            isDark: isDark
-        )
+        let top = store.claudeSessionPercent
+        let bottom = store.codexSessionPercent
+
+        // 内容没变时绝不能重设 image：赋新图会标脏状态栏，触发系统 replicant 快照，
+        // 快照过程又会改动 effectiveAppearance 触发上面的 KVO 再进本方法，
+        // 形成主线程 100% CPU 的死循环（macOS 26 实测）。
+        if let last = lastRendered,
+           last.top == top, last.bottom == bottom, last.isDark == isDark {
+            return
+        }
+        lastRendered = (top, bottom, isDark)
+
+        button.image = StatusIcon.image(top: top, bottom: bottom, isDark: isDark)
     }
 
     @objc private func togglePopover() {
