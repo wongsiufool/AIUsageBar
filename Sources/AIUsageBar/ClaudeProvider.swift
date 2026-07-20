@@ -1,5 +1,4 @@
 import Foundation
-import Security
 
 /// Claude Code 用量：钥匙串 OAuth token → api.anthropic.com/api/oauth/usage
 /// 该接口与 Claude Code 内置 /usage 命令使用同一数据源。
@@ -8,16 +7,25 @@ enum ClaudeProvider {
     static let userAgent = "claude-code/2.1.206"
 
     static func readAccessToken() throws -> String {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "Claude Code-credentials",
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
-        guard status == errSecSuccess, let data = item as? Data,
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        // 必须经由 /usr/bin/security 读取，不能用 SecItemCopyMatching：
+        // 该条目由 Claude Code 通过 security CLI 创建，partition list 仅含 "apple-tool:"，
+        // GUI 应用直读会每次强制弹密码授权框（「始终允许」也只按当次构建的 cdhash 放行），
+        // 而 security CLI 在条目的 ACL 与 partition list 内，可静默读取。
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+        proc.arguments = ["find-generic-password", "-s", "Claude Code-credentials", "-w"]
+        let stdout = Pipe()
+        proc.standardOutput = stdout
+        proc.standardError = Pipe()
+        guard (try? proc.run()) != nil else {
+            throw UsageError.noCredentials("无法调用 security 读取钥匙串")
+        }
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        proc.waitUntilExit()
+        guard proc.terminationStatus == 0,
+              let raw = String(data: data, encoding: .utf8)?
+                  .trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: raw) as? [String: Any],
               let oauth = json["claudeAiOauth"] as? [String: Any],
               let token = oauth["accessToken"] as? String
         else {
